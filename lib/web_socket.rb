@@ -454,11 +454,17 @@ class WebSocketServer
         uri = params_or_uri.is_a?(String) ? URI.parse(params_or_uri) : params_or_uri
         params[:port] ||= uri.port
         params[:accepted_domains] ||= [uri.host]
+        params[:secure] ||= false
+        params[:secure_private_key_file] ||= ''
+        params[:secure_certificate_file] ||= ''
       else
         params = params_or_uri
       end
       @port = params[:port] || 80
       @accepted_domains = params[:accepted_domains]
+      @secure = params[:secure]
+      @secure_private_key_file = params[:secure_private_key_file]
+      @secure_certificate_file = params[:secure_certificate_file]
       if !@accepted_domains
         raise(ArgumentError, "params[:accepted_domains] is required")
       end
@@ -466,6 +472,16 @@ class WebSocketServer
         @tcp_server = TCPServer.open(params[:host], @port)
       else
         @tcp_server = TCPServer.open(@port)
+      end
+      if @secure
+        ctx      = OpenSSL::SSL::SSLContext.new
+        raw_key  = File.read(@secure_private_key_file)
+        raw_cert = File.read(@secure_certificate_file)
+        ctx.key  = OpenSSL::PKey::RSA.new(raw_key)
+        ctx.cert = OpenSSL::X509::Certificate.new(raw_cert)
+        @server  = OpenSSL::SSL::SSLServer.new(@tcp_server, ctx)
+      else
+        @server = @tcp_server
       end
     end
 
@@ -490,7 +506,7 @@ class WebSocketServer
     end
 
     def accept()
-      return @tcp_server.accept()
+      return @server.accept()
     end
 
     def accepted_origin?(origin)
