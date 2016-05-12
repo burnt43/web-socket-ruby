@@ -506,7 +506,11 @@ class WebSocketServer
     end
 
     def accept()
-      return @server.accept()
+      begin
+        @server.accept()
+      rescue
+        nil
+      end
     end
 
     def accepted_origin?(origin)
@@ -523,6 +527,7 @@ class WebSocketServer
     end
 
     def create_web_socket(socket)
+      return nil unless socket
       ch = socket.getc()
       if ch == ?<
         # This is Flash socket policy file request, not an actual Web Socket connection.
