@@ -273,6 +273,7 @@ class WebSocket
     
     # Does closing handshake.
     def close(code = 1005, reason = "", origin = :self)
+      $log.info("[JCARSON] - calling #{__method__}") if $log
       if !@closing_started
         case @web_socket_version
           when "hixie-75", "hixie-76"
@@ -291,6 +292,7 @@ class WebSocket
     end
     
     def close_socket()
+      $log.info("[JCARSON] - calling #{__method__}") if $log
       @socket.close()
     end
 
@@ -490,6 +492,11 @@ class WebSocketServer
     def run(&block)
       while true
         Thread.start(accept()) do |s|
+          if @secure
+            $log.info('[JCARSON] - setting sync_close=true') if $log
+            s.sync_close = true
+          end
+
           begin
             ws = create_web_socket(s)
             yield(ws) if ws
