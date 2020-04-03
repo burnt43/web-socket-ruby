@@ -490,7 +490,7 @@ class WebSocketServer
     def run(&block)
       while true
         Thread.start(accept()) do |s|
-          if @secure && s.respond_to?(:sync_close)
+          if @secure && s.respond_to?(:sync_close=)
             s.sync_close = true
           end
 

@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name        = 'web-socket-ruby'
-  s.version     = '0.2.1'
+  s.version     = '0.2.2'
   s.date        = '2020-03-18'
   s.summary     = 'foobar'
   s.description = 'foobar'
