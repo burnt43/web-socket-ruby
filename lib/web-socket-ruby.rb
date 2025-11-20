@@ -13,6 +13,35 @@ require "digest/sha1"
 require "openssl"
 require "stringio"
 
+# Monkey-patch in a way so when a client fails to connect because of SSL reasons,
+# we swoop in and save the underlying TCPSocket and attach it into the exception
+# that gets raised. Doing it this way gives us access to the TCPSocket later when
+# we handle the exception and therefore we have access to the client's information
+# like its IP.
+OpenSSL::SSL::SSLServer.class_eval do
+  # Works similar to TCPServer#accept.
+  def accept
+    # Socket#accept returns [socket, addrinfo].
+    # TCPServer#accept returns a socket.
+    # The following comma strips addrinfo.
+    sock, = @svr.accept
+    mtt_tcp_peeraddr = sock&.peeraddr
+    begin
+      ssl = OpenSSL::SSL::SSLSocket.new(sock, @ctx)
+      ssl.sync_close = true
+      ssl.accept if @start_immediately
+      ssl
+    rescue Exception => ex
+      if ssl
+        ssl.close
+      else
+        sock.close
+      end
+      ex.instance_eval { @mtt_tcp_peeraddr = mtt_tcp_peeraddr }
+      raise ex
+    end
+  end
+end
 
 class WebSocket
 
@@ -487,22 +516,50 @@ class WebSocketServer
 
     attr_reader(:tcp_server, :port, :accepted_domains)
 
+    def __mtt_log_ip__(label, input_peeraddr)
+      if input_peeraddr
+        my_log_message = "[#{label}] - ip #{input_peeraddr[2]} port #{input_peeraddr[1]}"
+        if $log
+          $log.info my_log_message
+        else
+          puts my_log_message
+        end
+      end
+    end
+
     def run(&block)
       while true
         Thread.start(accept()) do |s|
-          if @secure && s.respond_to?(:sync_close=)
-            s.sync_close = true
+          # See if we can find a peeraddr.
+          my_peeraddr =
+            if s.is_a?(OpenSSL::SSL::SSLSocket)
+              s&.io&.peeraddr
+            elsif s.is_a?(TCPSocket)
+              s&.peeraddr
+            else
+              nil
+            end
+
+          # Log the peeraddr we found. This is a good connection.
+          if my_peeraddr
+            __mtt_log_ip__ 'SUCCESSFULL_CONNECTION', my_peeraddr
           end
 
-          begin
-            ws = create_web_socket(s)
-            yield(ws) if ws
-          rescue => ex
-            print_backtrace(ex)
-          ensure
+          if s
+            if @secure && s.respond_to?(:sync_close=)
+              s.sync_close = true
+            end
+
             begin
-              ws.close_socket() if ws
-            rescue
+              ws = create_web_socket(s)
+              yield(ws) if ws
+            rescue => ex
+              print_backtrace(ex)
+            ensure
+              begin
+                ws.close_socket() if ws
+              rescue
+              end
             end
           end
         end
@@ -512,7 +569,19 @@ class WebSocketServer
     def accept()
       begin
         @server.accept()
-      rescue
+      rescue => e
+        # If @server is an OpenSSL::SSL::SSLServer and we're here handling an exception,
+        # that means because of the SSL monkey patch in this file, this exception should
+        # have an instance variable set that holds the peeraddr of the SSLSocket's underlying
+        # TCPSocket. We can get the ip address and port from that.
+        my_peeraddr = e.instance_eval { @mtt_tcp_peeraddr }
+
+        # If we were able to extract a peeraddr, then log that it was a failure.
+        if my_peeraddr
+          __mtt_log_ip__ 'SSL_CONNECTION_FAILURE', my_peeraddr
+        end
+
+        # Return nil as there is no valid client connection.
         nil
       end
     end
