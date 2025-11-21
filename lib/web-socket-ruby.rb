@@ -527,6 +527,16 @@ class WebSocketServer
       end
     end
 
+    def __mtt_log_connection_failure__(e)
+      my_log_message = "[CLIENT_CONNECTION_FAILURE] - #{e.class.name}(#{e.message})"
+
+      if $log
+        $log.info my_log_message
+      else
+        puts my_log_message
+      end
+    end
+
     def run(&block)
       while true
         Thread.start(accept()) do |s|
@@ -580,6 +590,8 @@ class WebSocketServer
         if my_peeraddr
           __mtt_log_ip__ 'SSL_CONNECTION_FAILURE', my_peeraddr
         end
+
+        __mtt_log_connection_failure__ e
 
         # Return nil as there is no valid client connection.
         nil
