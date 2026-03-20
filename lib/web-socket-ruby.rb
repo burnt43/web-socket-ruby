@@ -138,7 +138,7 @@ class WebSocket
           "#{key3}")
         flush()
 
-        line = gets().chomp()
+        line = gets()&.chomp()
         raise(WebSocket::Error, "bad response: #{line}") if !(line =~ /\AHTTP\/1.1 101 /n)
         read_header()
         if (@header["sec-websocket-origin"] || "").downcase() != origin.downcase()
@@ -491,9 +491,12 @@ class WebSocketServer
       end
       @port = params[:port] || 80
       @accepted_domains = params[:accepted_domains]
-      @secure = params[:secure]
-      @secure_private_key_file = params[:secure_private_key_file]
-      @secure_certificate_file = params[:secure_certificate_file]
+
+      @secure                   = params[:secure]
+      @secure_private_key_file  = params[:secure_private_key_file]
+      @secure_certificate_file  = params[:secure_certificate_file]
+      @secure_extra_chain_certs = Array(params[:secure_extra_chain_certs]) || []
+
       if !@accepted_domains
         raise(ArgumentError, "params[:accepted_domains] is required")
       end
@@ -504,10 +507,22 @@ class WebSocketServer
       end
       if @secure
         ctx      = OpenSSL::SSL::SSLContext.new
+
         raw_key  = File.read(@secure_private_key_file)
         raw_cert = File.read(@secure_certificate_file)
         ctx.key  = OpenSSL::PKey::RSA.new(raw_key)
         ctx.cert = OpenSSL::X509::Certificate.new(raw_cert)
+
+        unless @secure_extra_chain_certs.empty?
+          ctx.extra_chain_cert = @secure_extra_chain_certs.map {|configured_file|
+            if File.exist?(configured_file)
+              OpenSSL::X509::Certificate.new(File.read(configured_file))          
+            else
+              nil
+            end
+          }.compact
+        end
+
         @server  = OpenSSL::SSL::SSLServer.new(@tcp_server, ctx)
       else
         @server = @tcp_server
